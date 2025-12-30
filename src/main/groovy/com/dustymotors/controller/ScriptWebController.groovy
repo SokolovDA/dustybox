@@ -6,10 +6,12 @@ import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
+import org.springframework.web.servlet.mvc.support.RedirectAttributes
 
 @Controller
 @RequestMapping("/web/scripts")
 class ScriptWebController {
+
     @Autowired
     private ScriptExecutionService scriptService
 
@@ -17,50 +19,71 @@ class ScriptWebController {
      * Главная страница - список скриптов
      */
     @GetMapping
-    String listScripts(@RequestParam(name = "path", required = false) String path, Model model) {
-        def scripts = scriptService.listScripts(path ?: '')
-        model.addAttribute('scripts', scripts)
-        model.addAttribute('currentPath', path ?: '')
-        model.addAttribute('parentPath', getParentPath(path))
-        return 'scripts/script-list'
+    String listScripts(
+            @RequestParam(name = "path", required = false) String path,
+            Model model
+    ) {
+        try {
+            def scripts = scriptService.listScripts(path ?: '')
+            model.addAttribute('scripts', scripts)
+            model.addAttribute('currentPath', path ?: '')
+            model.addAttribute('parentPath', getParentPath(path))
+            return 'scripts/list'
+        } catch (Exception e) {
+            model.addAttribute('error', "Ошибка при получении списка скриптов: ${e.message}")
+            return 'scripts/list'
+        }
     }
 
     /**
      * Страница создания нового скрипта
      */
-    @GetMapping("/new")
-    String newScriptPage(@RequestParam(name = "path", required = false) String path, Model model) {
+    @GetMapping("/create")
+    String createScriptPage(
+            @RequestParam(name = "path", required = false) String path,
+            Model model
+    ) {
         model.addAttribute('currentPath', path ?: '')
-        return 'scripts/script-new'
+        return 'scripts/create'
     }
 
 /**
  * Создание нового скрипта
  */
-    @PostMapping("/new")
-    String createNewScript(@RequestParam(name = "path", required = false) String path,
-                           @RequestParam(name = "filename") String filename,
-                           @RequestParam(name = "content", required = false) String content,
-                           Model model) {
+    @PostMapping("/create")
+    String createScript(
+            @RequestParam(name = "path", required = false) String path,
+            @RequestParam(name = "filename") String filename,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
-            // Проверяем расширение
-            if (!filename.endsWith('.groovy')) {
-                filename += '.groovy'
-            }
+            String finalFilename = filename.endsWith('.groovy') ? filename : filename + '.groovy'
+            String fullPath = path ? "${path}/${finalFilename}" : finalFilename
 
-            // Определяем полный путь
-            String fullPath = path ? "${path}/${filename}" : filename
+            String initialContent = """// Новый Groovy скрипт: $finalFilename
+// Создан: ${new Date()}
 
-            // Сохраняем скрипт (пустой или с пользовательским содержимым)
-            scriptService.saveScript(fullPath, content ?: "")
+def disks = cdDiskService.findAll()
+println "Найдено дисков: \${disks.size()}"
 
-            model.addAttribute('message', "Скрипт '${filename}' успешно создан")
-            return "redirect:/web/scripts/edit?path=${URLEncoder.encode(fullPath, 'UTF-8')}"
+return [
+    message: "Скрипт \$finalFilename выполнен успешно",
+    diskCount: disks.size()
+]
+"""
 
+            scriptService.saveScript(fullPath, initialContent)
+
+            redirectAttributes.addFlashAttribute("message", "Скрипт '$finalFilename' успешно создан")
+            redirectAttributes.addAttribute("path", fullPath)
+
+            return "redirect:/web/scripts/edit"
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка создания скрипта: ' + e.message)
-            model.addAttribute('currentPath', path)
-            return 'scripts/script-new'
+            redirectAttributes.addFlashAttribute("error", "Ошибка создания скрипта: ${e.message}")
+            if (path) {
+                redirectAttributes.addAttribute("path", path)
+            }
+            return "redirect:/web/scripts"
         }
     }
 
@@ -68,152 +91,163 @@ class ScriptWebController {
      * Страница редактирования скрипта
      */
     @GetMapping("/edit")
-    String editScript(@RequestParam(name = "path") String path,
-                      @RequestParam(name = "currentPath", required = false) String currentPath,
-                      Model model) {
+    String editScript(
+            @RequestParam(name = "path") String path,
+            @RequestParam(name = "message", required = false) String message,
+            @RequestParam(name = "error", required = false) String error,
+            Model model
+    ) {
         try {
             def content = scriptService.getScriptContent(path)
             model.addAttribute('scriptPath', path)
             model.addAttribute('scriptContent', content)
-            model.addAttribute('currentPath', currentPath ?: new File(path).parent ?: '')
-            return 'scripts/script-edit'
+
+            if (message) {
+                model.addAttribute('message', message)
+            }
+            if (error) {
+                model.addAttribute('error', error)
+            }
+
+            return 'scripts/edit'
         } catch (FileNotFoundException e) {
             model.addAttribute('error', 'Файл не найден')
+            return 'redirect:/web/scripts'
+        } catch (Exception e) {
+            model.addAttribute('error', "Ошибка при загрузке скрипта: ${e.message}")
             return 'redirect:/web/scripts'
         }
     }
 
     /**
-     * Выполнить скрипт из интерфейса редактирования
+     * Сохранение скрипта
      */
-    @PostMapping("/execute")
-    String executeScriptFromEditor(@RequestParam(name = "path") String path,
-                                   @RequestParam(name = "content", required = false) String content,
-                                   @RequestParam(name = "execute", defaultValue = "false") boolean execute,
-                                   Model model) {
+    @PostMapping("/save")
+    String saveScript(
+            @RequestParam(name = "path") String path,
+            @RequestParam(name = "content") String content,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
-            if (execute && content != null) {
-                scriptService.saveScript(path, content)
-
-                def executionResult = scriptService.executeScript(path, [:])
-                model.addAttribute('executionResult', executionResult)
-                model.addAttribute('executionSuccess', true)
-                model.addAttribute('message', 'Скрипт успешно выполнен')
-
-            } else if (content != null) {
-                scriptService.saveScript(path, content)
-                model.addAttribute('message', 'Скрипт успешно сохранен')
-            }
-
-            def updatedContent = scriptService.getScriptContent(path)
-            model.addAttribute('scriptPath', path)
-            model.addAttribute('scriptContent', updatedContent)
-
+            scriptService.saveScript(path, content)
+            redirectAttributes.addAttribute("path", path)
+            redirectAttributes.addAttribute("message", "Скрипт успешно сохранен")
+            return "redirect:/web/scripts/edit"
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка: ' + e.message)
-            model.addAttribute('executionSuccess', false)
-            model.addAttribute('executionResult', e.message)
-
-            if (content != null) {
-                model.addAttribute('scriptContent', content)
-            } else {
-                try {
-                    def fileContent = scriptService.getScriptContent(path)
-                    model.addAttribute('scriptContent', fileContent)
-                } catch (Exception ex) {
-                    model.addAttribute('scriptContent', '')
-                }
-            }
+            redirectAttributes.addAttribute("path", path)
+            redirectAttributes.addAttribute("error", "Ошибка сохранения: ${e.message}")
+            return "redirect:/web/scripts/edit"
         }
-
-        return 'scripts/script-edit'
     }
 
     /**
      * Удаление скрипта или директории
      */
     @PostMapping("/delete")
-    String deleteScript(@RequestParam(name = "path") String path,
-                        @RequestParam(name = "currentPath", required = false) String currentPath,
-                        Model model) {
+    String deleteScript(
+            @RequestParam(name = "path") String path,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
             scriptService.deleteScript(path)
-            model.addAttribute('message', 'Удаление выполнено')
+            redirectAttributes.addFlashAttribute("message", "Удаление выполнено успешно")
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка удаления: ' + e.message)
+            redirectAttributes.addFlashAttribute("error", "Ошибка удаления: ${e.message}")
         }
-        return "redirect:/web/scripts" +
-                (currentPath ? "?path=${URLEncoder.encode(currentPath, 'UTF-8')}" : "")
+
+        if (currentPath) {
+            redirectAttributes.addAttribute("path", currentPath)
+        }
+        return "redirect:/web/scripts"
     }
 
     /**
      * Загрузка файла
      */
     @PostMapping("/upload")
-    String uploadFile(@RequestParam(name = "path", required = false) String path,
-                      @RequestParam(name = "file") MultipartFile file,
-                      Model model) {
+    String uploadFile(
+            @RequestParam(name = "path", required = false) String path,
+            @RequestParam(name = "file") MultipartFile file,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
             if (!file.isEmpty()) {
-                scriptService.uploadScript(path ?: '',
-                        file.originalFilename,
-                        file.bytes)
-                model.addAttribute('message', 'Файл успешно загружен')
+                scriptService.uploadScript(path ?: '', file.originalFilename, file.bytes)
+                redirectAttributes.addFlashAttribute("message", "Файл успешно загружен")
+            } else {
+                redirectAttributes.addFlashAttribute("error", "Файл пустой")
             }
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка загрузки: ' + e.message)
+            redirectAttributes.addFlashAttribute("error", "Ошибка загрузки: ${e.message}")
         }
-        return "redirect:/web/scripts" +
-                (path ? "?path=${URLEncoder.encode(path, 'UTF-8')}" : "")
+
+        if (path) {
+            redirectAttributes.addAttribute("path", path)
+        }
+        return "redirect:/web/scripts"
     }
 
     /**
      * Создание директории
      */
     @PostMapping("/create-directory")
-    String createDirectory(@RequestParam(name = "path", required = false) String path,
-                           @RequestParam(name = "dirName") String dirName,
-                           Model model) {
+    String createDirectory(
+            @RequestParam(name = "path", required = false) String path,
+            @RequestParam(name = "dirName") String dirName,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
             scriptService.createDirectory(path ?: '', dirName)
-            model.addAttribute('message', 'Директория создана')
+            redirectAttributes.addFlashAttribute("message", "Директория создана")
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка создания: ' + e.message)
+            redirectAttributes.addFlashAttribute("error", "Ошибка создания: ${e.message}")
         }
-        return "redirect:/web/scripts" +
-                (path ? "?path=${URLEncoder.encode(path, 'UTF-8')}" : "")
+
+        if (path) {
+            redirectAttributes.addAttribute("path", path)
+        }
+        return "redirect:/web/scripts"
     }
 
     /**
      * Страница переименования
      */
     @GetMapping("/rename")
-    String renamePage(@RequestParam(name = "path") String path,
-                      @RequestParam(name = "currentPath", required = false) String currentPath,
-                      Model model) {
-        def scriptInfo = scriptService.getScriptInfo(path)
-        if (!scriptInfo) {
-            model.addAttribute('error', 'Файл/папка не найдена')
-            return "redirect:/web/scripts" +
-                    (currentPath ? "?path=${URLEncoder.encode(currentPath, 'UTF-8')}" : "")
-        }
+    String renamePage(
+            @RequestParam(name = "path") String path,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
+            Model model
+    ) {
+        try {
+            def scriptInfo = scriptService.getScriptInfo(path)
+            if (!scriptInfo) {
+                model.addAttribute('error', 'Файл/папка не найдена')
+                return "redirect:/web/scripts"
+            }
 
-        model.addAttribute('scriptInfo', scriptInfo)
-        model.addAttribute('currentPath', currentPath)
-        return 'scripts/script-rename'
+            model.addAttribute('scriptInfo', scriptInfo)
+            model.addAttribute('currentPath', currentPath)
+            return 'scripts/rename'
+        } catch (Exception e) {
+            model.addAttribute('error', "Ошибка: ${e.message}")
+            return "redirect:/web/scripts"
+        }
     }
 
     /**
      * Выполнение переименования
      */
     @PostMapping("/rename")
-    String renameScript(@RequestParam(name = "oldPath") String oldPath,
-                        @RequestParam(name = "newName") String newName,
-                        @RequestParam(name = "currentPath", required = false) String currentPath,
-                        Model model) {
+    String renameScript(
+            @RequestParam(name = "oldPath") String oldPath,
+            @RequestParam(name = "newName") String newName,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
+            RedirectAttributes redirectAttributes
+    ) {
         try {
             scriptService.renameScript(oldPath, newName)
-            model.addAttribute('message', 'Успешно переименовано')
+            redirectAttributes.addFlashAttribute("message", 'Успешно переименовано')
 
             def oldFile = new File(oldPath)
             def parent = oldFile.parent
@@ -221,17 +255,40 @@ class ScriptWebController {
 
             if (currentPath && currentPath.startsWith(oldPath)) {
                 def newCurrentPath = currentPath.replaceFirst(oldPath, newRelativePath)
-                return "redirect:/web/scripts" +
-                        (newCurrentPath ? "?path=${URLEncoder.encode(newCurrentPath, 'UTF-8')}" : "")
+                redirectAttributes.addAttribute("path", newCurrentPath)
+                return "redirect:/web/scripts"
             }
         } catch (Exception e) {
-            model.addAttribute('error', 'Ошибка переименования: ' + e.message)
-            model.addAttribute('scriptInfo', scriptService.getScriptInfo(oldPath))
-            model.addAttribute('currentPath', currentPath)
-            return 'scripts/script-rename'
+            redirectAttributes.addFlashAttribute("error", "Ошибка переименования: ${e.message}")
+            redirectAttributes.addAttribute("path", oldPath)
+            redirectAttributes.addAttribute("currentPath", currentPath)
+            return "redirect:/web/scripts/rename"
         }
-        return "redirect:/web/scripts" +
-                (currentPath ? "?path=${URLEncoder.encode(currentPath, 'UTF-8')}" : "")
+
+        if (currentPath) {
+            redirectAttributes.addAttribute("path", currentPath)
+        }
+        return "redirect:/web/scripts"
+    }
+
+    /**
+     * Предпросмотр скрипта
+     */
+    @GetMapping("/preview")
+    String previewScript(
+            @RequestParam(name = "path") String path,
+            Model model
+    ) {
+        try {
+            def content = scriptService.getScriptContent(path)
+            model.addAttribute('scriptPath', path)
+            model.addAttribute('scriptContent', content)
+            model.addAttribute('readOnly', true)
+            return 'scripts/edit'
+        } catch (Exception e) {
+            model.addAttribute('error', "Ошибка: ${e.message}")
+            return 'redirect:/web/scripts'
+        }
     }
 
     /**

@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'com.dustymotors'
-version = '0.0.1-SNAPSHOT'
+version = '1.0.0'
 
 java {
     sourceCompatibility = '25'
@@ -19,23 +19,70 @@ repositories {
 
 ext {
     groovyVersion = '5.0.3'
+    springBootVersion = '4.0.1'
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.postgresql:postgresql'
+    // Spring Boot Starters
+    implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-data-jpa:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-security:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-validation:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-thymeleaf:${springBootVersion}"
+
+    // Database
+    implementation 'org.postgresql:postgresql:42.6.0'
+
+    // Groovy
     implementation "org.apache.groovy:groovy:${groovyVersion}"
     implementation "org.apache.groovy:groovy-json:${groovyVersion}"
+    implementation "org.apache.groovy:groovy-sql:${groovyVersion}"
+
+    // API Documentation
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
-    implementation 'jakarta.annotation:jakarta.annotation-api:2.1.1'
-    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+
+    // Utilities
     implementation 'commons-io:commons-io:2.16.1'
-    // Для работы с FileUtils
-    implementation 'commons-io:commons-io:2.16.1'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    implementation 'org.apache.commons:commons-lang3:3.14.0'
+
+    // Security
+    implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6:3.1.2.RELEASE'
+
+    // Development Tools
+    developmentOnly "org.springframework.boot:spring-boot-devtools:${springBootVersion}"
+
+    // Testing
+    testImplementation "org.springframework.boot:spring-boot-starter-test:${springBootVersion}"
+    testImplementation "org.springframework.security:spring-security-test:6.2.0"
+    testImplementation "org.apache.groovy:groovy-test:${groovyVersion}"
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+tasks.named('bootRun') {
+    systemProperty 'spring.profiles.active', 'dev'
+}
+
+tasks.named('compileGroovy') {
+    groovyOptions.encoding = 'UTF-8'
+}
+
+tasks.named('compileJava') {
+    options.encoding = 'UTF-8'
+}
+
+springBoot {
+    buildInfo {
+        properties {
+            version = project.version
+            group = project.group
+            name = project.name
+        }
+    }
 }
