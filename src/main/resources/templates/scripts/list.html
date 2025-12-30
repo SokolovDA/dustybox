@@ -81,7 +81,7 @@
     <!-- Список скриптов -->
     <div class="card">
         <div class="card-header">
-            <span th:text="'Файлы (' + ${scripts.size()} + ')'"></span>
+            <span th:text="'Файлы (' + ${scripts != null ? scripts.size() : 0} + ')'"></span>
         </div>
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
@@ -107,37 +107,46 @@
                 <!-- Список файлов и папок -->
                 <tr th:each="script : ${scripts}">
                     <td>
-                        <span th:if="${script.isDirectory}" class="dir-icon">📁</span>
-                        <span th:unless="${script.isDirectory}" class="file-icon">📄</span>
+                        <span th:if="${script != null and script.isDirectory}" class="dir-icon">📁</span>
+                        <span th:if="${script != null and !script.isDirectory}" class="file-icon">📄</span>
 
-                        <a th:if="${script.isDirectory}"
+                        <a th:if="${script != null and script.isDirectory}"
                            th:href="@{/web/scripts(path=${script.relativePath})}"
                            th:text="${script.name}"
                            class="text-decoration-none ms-2">
                         </a>
 
-                        <span th:unless="${script.isDirectory}"
+                        <span th:if="${script != null and !script.isDirectory}"
                               th:text="${script.name}"
                               class="ms-2">
                                 </span>
                     </td>
                     <td>
-                        <span th:if="${script.isDirectory}">-</span>
-                        <span th:unless="${script.isDirectory}"
+                        <span th:if="${script != null and script.isDirectory}">-</span>
+                        <span th:if="${script != null and !script.isDirectory}"
                               th:text="${#numbers.formatDecimal(script.size/1024, 1, 2)} + ' KB'">
                                 </span>
                     </td>
-                    <td th:text="${#dates.format(script.lastModified, 'dd.MM.yyyy HH:mm')}"></td>
+                    <td th:if="${script != null}"
+                        th:text="${#dates.format(script.lastModified, 'dd.MM.yyyy HH:mm')}"></td>
                     <td class="actions">
                         <!-- Для файлов -->
-                        <a th:if="${!script.isDirectory}"
+                        <a th:if="${script != null and !script.isDirectory}"
                            th:href="@{/web/scripts/edit(path=${script.relativePath})}"
                            class="btn btn-sm btn-outline-primary">
                             Редактировать
                         </a>
 
+                        <!-- Кнопка переименования -->
+                        <a th:if="${script != null}"
+                           th:href="@{/web/scripts/rename(path=${script.relativePath}, currentPath=${currentPath})}"
+                           class="btn btn-sm btn-outline-warning ms-1">
+                            Переименовать
+                        </a>
+
                         <!-- Кнопка удаления -->
-                        <form th:action="@{/web/scripts/delete}" method="post"
+                        <form th:if="${script != null}"
+                              th:action="@{/web/scripts/delete}" method="post"
                               style="display: inline-block;"
                               onsubmit="return confirm('Удалить \'' + [[${script.name}]] + '\'?');">
                             <input type="hidden" name="path" th:value="${script.relativePath}">
@@ -148,7 +157,7 @@
                         </form>
 
                         <!-- Кнопка выполнения -->
-                        <a th:if="${!script.isDirectory && script.name.endsWith('.groovy')}"
+                        <a th:if="${script != null and !script.isDirectory and script.name.endsWith('.groovy')}"
                            th:href="@{/api/scripts/{name}(name=${script.relativePath})}"
                            target="_blank"
                            class="btn btn-sm btn-outline-success ms-1">
@@ -158,7 +167,7 @@
                 </tr>
 
                 <!-- Пустой список -->
-                <tr th:if="${scripts.empty}">
+                <tr th:if="${scripts == null or scripts.empty}">
                     <td colspan="4" class="text-center text-muted py-4">
                         Папка пуста
                     </td>

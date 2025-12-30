@@ -301,6 +301,36 @@ class ScriptExecutionService {
     }
 
     /**
+     * Переименовать файл или директорию
+     * @param oldRelativePath Старый относительный путь
+     * @param newName Новое имя
+     */
+    void renameScript(String oldRelativePath, String newName) {
+        if (!isValidFilename(newName)) {
+            throw new IllegalArgumentException("Некорректное новое имя: $newName")
+        }
+
+        File oldFile = resolvePath(oldRelativePath)
+
+        if (!oldFile.exists()) {
+            throw new FileNotFoundException("Файл/директория не найдена: $oldRelativePath")
+        }
+
+        File parentDir = oldFile.parentFile
+        File newFile = new File(parentDir, newName)
+
+        if (newFile.exists()) {
+            throw new IllegalArgumentException("Файл/директория с таким именем уже существует: $newName")
+        }
+
+        if (!oldFile.renameTo(newFile)) {
+            throw new RuntimeException("Не удалось переименовать: ${oldFile.absolutePath} -> ${newFile.absolutePath}")
+        }
+
+        println "Переименовано: ${oldFile.absolutePath} -> ${newFile.absolutePath}"
+    }
+
+    /**
      * Проверить существование скрипта
      * @param relativePath Относительный путь
      * @return true если существует
@@ -334,36 +364,6 @@ class ScriptExecutionService {
                 canRead: file.canRead(),
                 canWrite: file.canWrite()
         )
-    }
-
-    /**
-     * Переименовать файл или директорию
-     * @param oldRelativePath Старый относительный путь
-     * @param newName Новое имя
-     */
-    void renameScript(String oldRelativePath, String newName) {
-        if (!isValidFilename(newName)) {
-            throw new IllegalArgumentException("Некорректное новое имя: $newName")
-        }
-
-        File oldFile = resolvePath(oldRelativePath)
-
-        if (!oldFile.exists()) {
-            throw new FileNotFoundException("Файл/директория не найдена: $oldRelativePath")
-        }
-
-        File parentDir = oldFile.parentFile
-        File newFile = new File(parentDir, newName)
-
-        if (newFile.exists()) {
-            throw new IllegalArgumentException("Файл/директория с таким именем уже существует: $newName")
-        }
-
-        if (!oldFile.renameTo(newFile)) {
-            throw new RuntimeException("Не удалось переименовать: ${oldFile.absolutePath} -> ${newFile.absolutePath}")
-        }
-
-        println "Переименовано: ${oldFile.absolutePath} -> ${newFile.absolutePath}"
     }
 
     /**
