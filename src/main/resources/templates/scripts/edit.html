@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'Редактирование: ' + ${scriptPath}"></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css" rel="stylesheet">
+    <style>
+        .editor-container {
+            height: 500px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .CodeMirror {
+            height: 100%;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 th:text="'Редактирование: ' + ${scriptPath}"></h1>
+        <div>
+            <a th:href="@{/web/scripts}" class="btn btn-outline-secondary">Назад к списку</a>
+            <a th:href="@{/swagger-ui.html}" class="btn btn-outline-secondary ms-2">API Docs</a>
+        </div>
+    </div>
+
+    <!-- Сообщения -->
+    <div th:if="${message}" class="alert alert-success alert-dismissible fade show">
+        <span th:text="${message}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    <div th:if="${error}" class="alert alert-danger alert-dismissible fade show">
+        <span th:text="${error}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <form th:action="@{/web/scripts/save}" method="post">
+                <input type="hidden" name="path" th:value="${scriptPath}">
+
+                <div class="mb-3">
+                    <label class="form-label">Содержимое скрипта:</label>
+                    <div class="editor-container">
+                            <textarea id="scriptContent" name="content" style="display: none;"
+                                      th:text="${scriptContent}"></textarea>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <button type="submit" class="btn btn-primary">
+                            💾 Сохранить
+                        </button>
+                        <a th:href="@{/web/scripts}" class="btn btn-outline-secondary ms-2">
+                            Отмена
+                        </a>
+                    </div>
+
+                    <div>
+                        <a th:href="@{/api/scripts/{name}(name=${scriptPath})}"
+                           target="_blank"
+                           class="btn btn-success">
+                            ▶ Выполнить скрипт
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <div class="alert alert-info">
+            <h6>Доступные переменные в скрипте:</h6>
+            <ul class="mb-0">
+                <li><code>cdDiskService</code> - сервис для работы с CD дисками</li>
+                <li>Переменные, переданные при выполнении через API</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/groovy/groovy.min.js"></script>
+<script>
+    // Инициализация редактора кода
+    var editor = CodeMirror.fromTextArea(document.getElementById('scriptContent'), {
+        mode: 'groovy',
+        theme: 'dracula',
+        lineNumbers: true,
+        indentUnit: 4,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        lineWrapping: true
+    });
+
+    // Автосохранение размера редактора при изменении окна
+    window.addEventListener('resize', function() {
+        editor.refresh();
+    });
+
+    // Предупреждение при закрытии с несохраненными изменениями
+    var isDirty = false;
+    editor.on('change', function() {
+        isDirty = true;
+    });
+
+    window.addEventListener('beforeunload', function(e) {
+        if (isDirty) {
+            e.preventDefault();
+            e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите уйти?';
+        }
+    });
+
+    // Сброс флага при отправке формы
+    document.querySelector('form').addEventListener('submit', function() {
+        isDirty = false;
+    });
+</script>
+</body>
+</html>
