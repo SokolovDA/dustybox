@@ -1,6 +1,8 @@
 package com.dustymotors.service
 
 import com.dustymotors.dto.ScriptFileDto
+import groovy.json.JsonBuilder
+import groovy.json.JsonSlurper
 import groovy.lang.Binding
 import groovy.util.GroovyScriptEngine
 import org.apache.commons.io.FileUtils
@@ -39,29 +41,46 @@ class ScriptExecutionService {
         println "GroovyScriptEngine инициализирован. Базовая директория: ${baseScriptsDir.absolutePath}"
     }
 
-    /**
-     * Выполнить Groovy скрипт
-     * @param scriptName Имя скрипта (относительный путь от базовой директории)
-     * @param bindingVars Дополнительные переменные для контекста выполнения
-     * @return Результат выполнения скрипта
-     */
+/**
+ * Выполнить Groovy скрипт
+ * @param scriptName Имя скрипта (относительный путь от базовой директории)
+ * @param bindingVars Дополнительные переменные для контекста выполнения
+ * @return Результат выполнения скрипта
+ */
     Object executeScript(String scriptName, Map<String, Object> bindingVars = [:]) {
         validateScriptPath(scriptName)
 
         Binding binding = new Binding()
-        // Передаем сервисы в контекст выполнения скрипта
+
+        // Основные сервисы
         binding.setVariable('cdDiskService', cdDiskService)
+
+        // Информация о скрипте
+        binding.setVariable('scriptName', scriptName)
+        binding.setVariable('scriptPath', scriptName)
+        binding.setVariable('scriptBaseName', new File(scriptName).name.replace('.groovy', ''))
+
+        // Время выполнения
+        def executionTime = new Date()
+        binding.setVariable('executionTime', executionTime)
+        binding.setVariable('timestamp', executionTime)
+
+        // Вспомогательные функции
+        binding.setVariable('println', System.out.&println)
+        binding.setVariable('print', System.out.&print)
+
+        // JSON обработка
+        def jsonSlurper = new JsonSlurper()
+        def jsonBuilder = new JsonBuilder()
+        binding.setVariable('json', jsonSlurper)
+        binding.setVariable('toJson', { obj -> jsonBuilder(obj).toString() })
+
         // Добавляем пользовательские переменные
         bindingVars.each { key, value -> binding.setVariable(key, value) }
-
-        // Добавляем вспомогательные переменные
-        binding.setVariable('scriptName', scriptName)
-        binding.setVariable('executionTime', new Date())
 
         println "Выполнение скрипта: $scriptName с переменными: $bindingVars"
 
         try {
-            // Запускаем скрипт
             def result = scriptEngine.run(scriptName, binding)
             println "Скрипт $scriptName успешно выполнен"
             return result

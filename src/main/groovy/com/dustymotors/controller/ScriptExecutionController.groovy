@@ -10,20 +10,21 @@ class ScriptExecutionController {
     @Autowired
     private ScriptExecutionService scriptExecutionService
 
-    // GET-метод для выполнения скрипта
-    @GetMapping("/{scriptName}")
+    // GET-метод для выполнения скрипта (включая подкаталоги)
+    @GetMapping("/{scriptName:.+}")
     Object executeScriptGet(@PathVariable("scriptName") String scriptName) {
         return scriptExecutionService.executeScript(scriptName, [:])
     }
 
-    @PostMapping("/{scriptName}")
+    // POST-метод для выполнения скрипта с параметрами (включая подкаталоги)
+    @PostMapping("/{scriptName:.+}")
     Object executeScriptPost(
             @PathVariable("scriptName") String scriptName,
             @RequestBody(required = false) Map<String, Object> bindingVars) {
         return scriptExecutionService.executeScript(scriptName, bindingVars ?: [:])
     }
 
-    @GetMapping("/{scriptName}/compile")
+    @GetMapping("/{scriptName:.+}/compile")
     String compileScript(@PathVariable("scriptName") String scriptName) {
         def clazz = scriptExecutionService.compileScript(scriptName)
         return "Script compiled successfully: ${clazz.name}"

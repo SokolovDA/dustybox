@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Редактирование скрипта - Dustybox</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css" rel="stylesheet">
+    <style>
+        .editor-container {
+            height: 400px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .CodeMirror {
+            height: 100%;
+            font-size: 14px;
+        }
+        .result-container {
+            margin-top: 20px;
+        }
+        .result-success {
+            border-left: 4px solid #28a745;
+        }
+        .result-error {
+            border-left: 4px solid #dc3545;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>
+            <span th:text="'Редактирование: ' + ${scriptPath}"></span>
+            <span th:if="${scriptPath != null and scriptPath.endsWith('.groovy')}"
+                  class="badge bg-secondary ms-2">Groovy</span>
+        </h1>
+        <div>
+            <!-- Исправлено: правильная навигация -->
+            <a th:if="${currentPath}"
+               th:href="@{/web/scripts(path=${currentPath})}"
+               class="btn btn-outline-secondary">← Назад к списку</a>
+            <a th:unless="${currentPath}"
+               th:href="@{/web/scripts}"
+               class="btn btn-outline-secondary">← Назад к списку</a>
+            <a th:href="@{/swagger-ui.html}" class="btn btn-outline-secondary ms-2" target="_blank">📚 API Docs</a>
+        </div>
+    </div>
+
+    <!-- Сообщения -->
+    <div th:if="${message}" class="alert alert-success alert-dismissible fade show">
+        <span th:text="${message}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    <div th:if="${error}" class="alert alert-danger alert-dismissible fade show">
+        <span th:text="${error}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <!-- Форма -->
+    <form th:action="@{/web/scripts/execute}" method="post" id="scriptForm">
+        <input type="hidden" name="path" th:value="${scriptPath}">
+        <input type="hidden" name="execute" id="executeFlag" value="false">
+
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Содержимое скрипта</span>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-info me-2" onclick="formatCode()">
+                        🔧 Форматировать
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" onclick="clearEditor()">
+                        ✕ Очистить
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="editor-container">
+                            <textarea id="scriptContent" name="content" style="display: none;"
+                                      th:text="${scriptContent}"></textarea>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <button type="submit" class="btn btn-primary" onclick="setExecuteFlag(false)">
+                            💾 Сохранить
+                        </button>
+                        <button type="submit" class="btn btn-success ms-2" onclick="setExecuteFlag(true)">
+                            ▶ Сохранить и выполнить
+                        </button>
+                        <!-- Исправлено: правильная навигация -->
+                        <a th:if="${currentPath}"
+                           th:href="@{/web/scripts(path=${currentPath})}"
+                           class="btn btn-outline-secondary">Отмена</a>
+                        <a th:unless="${currentPath}"
+                           th:href="@{/web/scripts}"
+                           class="btn btn-outline-secondary">Отмена</a>
+                    </div>
+
+                    <div>
+                        <a th:href="@{/api/scripts/{name}(name=${scriptPath})}"
+                           target="_blank"
+                           class="btn btn-outline-info">
+                            🔗 Выполнить через API
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Результат выполнения -->
+    <div th:if="${executionResult != null}" class="result-container" id="resultSection">
+        <!-- Успешный результат -->
+        <div th:if="${executionSuccess}" class="card result-success">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 text-success">✅ Результат выполнения</h5>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary me-2" onclick="copyResult()">
+                        📋 Копировать
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearResult()">
+                        ✕ Закрыть
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <h6>Тип результата:
+                    <!-- <code th:text="${executionResult != null ? executionResult.getClass().simpleName : 'null'}"></code> -->
+                    <code th:text="${executionResult != null ? executionResult.getClass().name : 'null'}"></code>
+                </h6>
+                <div class="mb-2">
+                    <strong>Результат:</strong>
+                </div>
+                <pre id="resultOutput"><code th:text="${#strings.toString(executionResult)}"></code></pre>
+
+                <div class="mt-3">
+                    <a th:href="@{/api/scripts/{name}(name=${scriptPath})}"
+                       target="_blank"
+                       class="btn btn-sm btn-outline-primary">
+                        🔄 Выполнить снова через API
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ошибка выполнения -->
+        <div th:unless="${executionSuccess}" class="card result-error">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 text-danger">❌ Ошибка выполнения</h5>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary me-2" onclick="copyResult()">
+                        📋 Копировать
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearResult()">
+                        ✕ Закрыть
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Ошибка:</strong>
+                </div>
+                <pre class="text-danger"><code th:text="${executionResult}"></code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/groovy/groovy.min.js"></script>
+<script>
+    // Инициализация редактора кода
+    var editor = CodeMirror.fromTextArea(document.getElementById('scriptContent'), {
+        mode: 'groovy',
+        theme: 'dracula',
+        lineNumbers: true,
+        indentUnit: 4,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        lineWrapping: true
+    });
+
+    // Флаг для отслеживания изменений
+    var isDirty = false;
+    var originalContent = editor.getValue();
+
+    editor.on('change', function() {
+        isDirty = editor.getValue() !== originalContent;
+    });
+
+    // Предупреждение при закрытии с несохраненными изменениями
+    window.addEventListener('beforeunload', function(e) {
+        if (isDirty) {
+            e.preventDefault();
+            e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите уйти?';
+        }
+    });
+
+    // Сброс флага при отправке формы
+    document.getElementById('scriptForm').addEventListener('submit', function() {
+        originalContent = editor.getValue();
+        isDirty = false;
+    });
+
+    // Установка флага выполнения
+    function setExecuteFlag(execute) {
+        document.getElementById('executeFlag').value = execute;
+    }
+
+    // Автосохранение размера редактора
+    window.addEventListener('resize', function() {
+        editor.refresh();
+    });
+
+    // Форматирование кода
+    function formatCode() {
+        var code = editor.getValue();
+        var lines = code.split('\n');
+        var formatted = [];
+        var indent = 0;
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (line.endsWith('{') || line.endsWith('(')) {
+                formatted.push('    '.repeat(indent) + line);
+                indent++;
+            } else if (line.startsWith('}') || line.startsWith(')')) {
+                indent = Math.max(0, indent - 1);
+                formatted.push('    '.repeat(indent) + line);
+            } else if (line === '') {
+                formatted.push('');
+            } else {
+                formatted.push('    '.repeat(indent) + line);
+            }
+        }
+
+        editor.setValue(formatted.join('\n'));
+        editor.focus();
+    }
+
+    // Загрузка примеров
+    function loadExample1() {
+        var code = `// Простой пример
+def disks = cdDiskService.findAll()
+println "Найдено дисков: " + disks.size()
+return [
+message: "Успешно",
+count: disks.size(),
+disks: disks.collect { [id: it.id, title: it.title, artist: it.artist] }
+]`;
+        editor.setValue(code);
+        editor.focus();
+    }
+
+    function loadExample2() {
+        var code = `// Фильтрация CD дисков по году
+def allDisks = cdDiskService.findAll()
+def year = 2000
+def filtered = allDisks.findAll { it.year > year }
+
+return [
+message: "Диски после " + year + " года",
+filteredCount: filtered.size(),
+totalCount: allDisks.size(),
+disks: filtered.collect {
+    [title: it.title, artist: it.artist, year: it.year]
+}
+]`;
+        editor.setValue(code);
+        editor.focus();
+    }
+
+    function loadExample3() {
+        var code = `// Создание нового CD диска
+import com.dustymotors.entity.CdDisk
+
+def newDisk = new CdDisk(
+title: "Новый альбом",
+artist: "Новый исполнитель",
+year: 2024
+)
+
+def savedDisk = cdDiskService.save(newDisk)
+
+return [
+message: "Диск успешно создан",
+disk: [
+    id: savedDisk.id,
+    title: savedDisk.title,
+    artist: savedDisk.artist,
+    year: savedDisk.year
+}
+]`;
+        editor.setValue(code);
+        editor.focus();
+    }
+
+    // Очистка редактора
+    function clearEditor() {
+        if (confirm('Очистить редактор? Все несохраненные изменения будут потеряны.')) {
+            editor.setValue('');
+            editor.focus();
+            isDirty = true;
+        }
+    }
+
+    // Копирование результата
+    function copyResult() {
+        var resultOutput = document.getElementById('resultOutput');
+        var text = '';
+
+        if (resultOutput) {
+            text = resultOutput.textContent;
+        } else {
+            var errorCode = document.querySelector('.text-danger code');
+            if (errorCode) {
+                text = errorCode.textContent;
+            }
+        }
+
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('Результат скопирован');
+            });
+        } else {
+            // Fallback для старых браузеров
+            var textArea = document.createElement("textarea");
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('Результат скопирован');
+        }
+    }
+
+    // Очистка результата
+    function clearResult() {
+        var resultSection = document.getElementById('resultSection');
+        if (resultSection) {
+            resultSection.style.display = 'none';
+        }
+    }
+
+    // Автофокус на редактор
+    window.onload = function() {
+        editor.focus();
+        editor.refresh();
+    };
+</script>
+</body>
+</html>
