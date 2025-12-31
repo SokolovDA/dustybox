@@ -23,6 +23,22 @@
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             line-height: 1.5;
         }
+        .status-badge {
+            font-size: 12px;
+            padding: 2px 8px;
+            margin-left: 10px;
+        }
+        .modal-confirm { color: #636363; }
+        .modal-confirm .modal-content { padding: 20px; border-radius: 5px; border: none; }
+        .modal-confirm .modal-header { border-bottom: none; position: relative; }
+        .modal-confirm h4 { text-align: center; font-size: 26px; margin: 30px 0 -10px; }
+        .modal-confirm .modal-body { color: #999; }
+        .modal-confirm .modal-footer { border: none; text-align: center; border-radius: 5px; font-size: 13px; }
+        .modal-confirm .btn, .modal-confirm .btn:active { color: #fff; border-radius: 4px; background: #60c7c1; text-decoration: none; transition: all 0.4s; line-height: normal; min-width: 120px; border: none; min-height: 40px; border-radius: 3px; margin: 0 5px; }
+        .modal-confirm .btn-secondary { background: #c1c1c1; }
+        .modal-confirm .btn-secondary:hover, .modal-confirm .btn-secondary:focus { background: #a8a8a8; }
+        .modal-confirm .btn-danger { background: #f15e5e; }
+        .modal-confirm .btn-danger:hover, .modal-confirm .btn-danger:focus { background: #ee3535; }
     </style>
 </head>
 <body>
@@ -58,6 +74,28 @@
 </nav>
 
 <div class="container-fluid">
+    <!-- Модальное окно подтверждения выхода -->
+    <div class="modal fade" id="exitConfirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-confirm">
+                <div class="modal-header flex-column">
+                    <div class="icon-box">
+                        <i class="material-icons">⚠️</i>
+                    </div>
+                    <h4 class="modal-title w-100">Несохраненные изменения</h4>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>У вас есть несохраненные изменения. Вы уверены, что хотите уйти?</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Остаться</button>
+                    <button type="button" class="btn btn-danger" id="confirmExit">Уйти без сохранения</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-lg-12">
             <div class="card border-0 shadow-sm">
@@ -65,8 +103,11 @@
                     <h5 class="mb-0">
                         <span class="badge bg-primary me-2">GROOVY</span>
                         <span th:text="${scriptPath}"></span>
+                        <span id="validationStatus" class="status-badge badge bg-secondary">Не проверено</span>
                     </h5>
                     <div class="d-flex">
+                        <button type="button" id="validateBtn" class="btn btn-outline-warning btn-sm me-2"
+                                onclick="validateScript()">✓ Проверить</button>
                         <a th:href="${currentPath != null and currentPath != ''} ?
                             @{/web/scripts(path=${currentPath})} : @{/web/scripts}"
                            class="btn btn-outline-secondary btn-sm me-2">← Назад</a>
@@ -111,15 +152,18 @@
                         <div class="d-flex justify-content-between">
                             <div>
                                 <button type="submit" id="saveButton" class="btn btn-primary">💾 Сохранить</button>
+                                <button type="button" id="compileBtn" class="btn btn-outline-success ms-2"
+                                        onclick="compileScript()">⚡ Компилировать</button>
                                 <a th:href="${currentPath != null and currentPath != ''} ?
                                     @{/web/scripts(path=${currentPath})} : @{/web/scripts}"
-                                   class="btn btn-outline-secondary ms-2">Отмена</a>
+                                   class="btn btn-outline-secondary ms-2" id="cancelBtn">Отмена</a>
                             </div>
                             <div>
-                                <a th:href="@{/api/scripts/{name}(name=${scriptPath})}"
+                                <!-- Обновлённая ссылка для выполнения через query-параметр -->
+                                <a th:href="@{/api/scripts/execute(path=${scriptPath})}"
                                    target="_blank"
                                    class="btn btn-success"
-                                   onclick="return confirmExecute()">▶ Выполнить</a>
+                                   id="executeBtn">▶ Выполнить</a>
                             </div>
                         </div>
                     </form>
@@ -176,9 +220,16 @@
     // ========== 1. ИНИЦИАЛИЗАЦИЯ ==========
     const readOnlyAttr = "[[${readOnly}]]";
     const isReadOnly = (readOnlyAttr === 'true');
+    const scriptPath = "[[${scriptPath}]]";
     const textareaId = isReadOnly ? 'scriptContentReadOnly' : 'scriptContent';
     const textareaElement = document.getElementById(textareaId);
     const initialContent = textareaElement ? textareaElement.value : '';
+
+    // Переменные для отслеживания состояния
+    let isDirty = false;
+    let isSubmitting = false;
+    let isProcessing = false;
+    let pendingExitUrl = null;
 
     // ========== 2. РЕДАКТОР ==========
     const editor = CodeMirror.fromTextArea(textareaElement, {
@@ -188,12 +239,90 @@
     });
     if (initialContent) editor.setValue(initialContent);
 
-    // ========== 3. НАСТРОЙКА ДЛЯ РЕДАКТИРОВАНИЯ ==========
-    if (!isReadOnly) {
-        let isDirty = false;
-        let isSubmitting = false;
-        let isProcessing = false; // Защита от повторных нажатий
+    // ========== 3. ФУНКЦИИ API ==========
+    function validateScript() {
+        const content = editor.getValue();
+        const csrfToken = document.getElementById('csrfToken').value;
 
+        fetch('/api/scripts/validate?path=' + encodeURIComponent(scriptPath), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken
+            },
+            body: JSON.stringify({ content: content })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const statusBadge = document.getElementById('validationStatus');
+            if (data.valid) {
+                statusBadge.className = 'status-badge badge bg-success';
+                statusBadge.textContent = '✓ Валиден';
+                showAlert('Синтаксис скрипта корректный', 'success');
+            } else {
+                statusBadge.className = 'status-badge badge bg-danger';
+                statusBadge.textContent = '✗ Ошибка';
+                showAlert('Ошибка синтаксиса: ' + (data.error || data.message), 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Ошибка при валидации: ' + error.message, 'danger');
+        });
+    }
+
+    function compileScript() {
+        const csrfToken = document.getElementById('csrfToken').value;
+
+        fetch('/api/scripts/compile?path=' + encodeURIComponent(scriptPath), {
+            method: 'GET',
+            headers: {
+                'X-CSRF-TOKEN': csrfToken
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                return response.text();
+            } else {
+                return response.text().then(text => { throw new Error(text); });
+            }
+        })
+        .then(message => {
+            showAlert('Компиляция успешна: ' + message, 'success');
+        })
+        .catch(error => {
+            showAlert('Ошибка компиляции: ' + error.message, 'danger');
+        });
+    }
+
+    function showAlert(message, type) {
+        // Удаляем старые алерты
+        document.querySelectorAll('.dynamic-alert').forEach(alert => alert.remove());
+
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show dynamic-alert mt-3`;
+        alertDiv.innerHTML = `
+            <span>${message}</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+
+        const cardBody = document.querySelector('.card-body');
+        const firstForm = cardBody.querySelector('form');
+        if (firstForm) {
+            cardBody.insertBefore(alertDiv, firstForm);
+        } else {
+            cardBody.prepend(alertDiv);
+        }
+
+        // Автоматически скрываем через 5 секунд
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
+    }
+
+    // ========== 4. НАСТРОЙКА ДЛЯ РЕДАКТИРОВАНИЯ ==========
+    if (!isReadOnly) {
         // Обновление счетчика символов и отслеживание изменений
         function updateCharCount() {
             const content = editor.getValue();
@@ -202,6 +331,13 @@
                 charCountElement.textContent = content.length;
             }
             isDirty = (content !== initialContent);
+
+            // Сброс статуса валидации при изменении
+            if (isDirty) {
+                const statusBadge = document.getElementById('validationStatus');
+                statusBadge.className = 'status-badge badge bg-warning';
+                statusBadge.textContent = 'Не проверено';
+            }
         }
 
         editor.on('change', updateCharCount);
@@ -214,13 +350,81 @@
         const form = document.getElementById('scriptForm');
         const saveButton = document.getElementById('saveButton');
         const csrfToken = document.getElementById('csrfToken');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const executeBtn = document.getElementById('executeBtn');
 
         console.log("Форма найдена:", !!form);
         console.log("Кнопка найдена:", !!saveButton);
         console.log("CSRF токен найден:", !!csrfToken);
-        if (csrfToken) {
-            console.log("CSRF параметр:", csrfToken.name, "значение:", csrfToken.value);
+
+        // Функция для обработки попытки ухода
+        function handleExitAttempt(event, url = null) {
+            if (isDirty && !isSubmitting) {
+                event.preventDefault();
+                pendingExitUrl = url;
+
+                // Показываем модальное окно подтверждения
+                const exitModal = new bootstrap.Modal(document.getElementById('exitConfirmModal'));
+                exitModal.show();
+                return false;
+            }
+            return true;
         }
+
+        // Настройка обработчиков для ссылок
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function(e) {
+                if (!handleExitAttempt(e, this.href)) {
+                    // Отменяем переход, показываем модальное окно
+                    e.preventDefault();
+                }
+            });
+        }
+
+        if (executeBtn) {
+            executeBtn.addEventListener('click', function(e) {
+                if (isDirty) {
+                    if (!handleExitAttempt(e, this.href)) {
+                        // Отменяем переход, показываем модальное окно
+                        e.preventDefault();
+                    }
+                } else {
+                    // Нет несохраненных изменений, спрашиваем только о выполнении
+                    if (!confirm('Выполнить скрипт?')) {
+                        e.preventDefault();
+                    }
+                }
+            });
+        }
+
+        // Обработчик для кнопки подтверждения выхода в модальном окне
+        document.getElementById('confirmExit').addEventListener('click', function() {
+            // Закрываем модальное окно
+            const exitModal = bootstrap.Modal.getInstance(document.getElementById('exitConfirmModal'));
+            exitModal.hide();
+
+            // Если есть URL для перехода, выполняем его
+            if (pendingExitUrl) {
+                // Проверяем, это ли ссылка выполнения
+                if (pendingExitUrl.includes('/api/scripts/execute')) {
+                    // Для выполнения открываем в новой вкладке
+                    window.open(pendingExitUrl, '_blank');
+                } else {
+                    // Для отмены просто переходим по ссылке
+                    window.location.href = pendingExitUrl;
+                }
+                pendingExitUrl = null;
+            }
+        });
+
+        // Обработчик beforeunload для закрытия вкладки/браузера
+        window.addEventListener('beforeunload', function(e) {
+            if (isDirty && !isSubmitting) {
+                e.preventDefault();
+                e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите уйти?';
+                return e.returnValue;
+            }
+        });
 
         if (form && saveButton) {
             // Важно: оставляем кнопку как submit, но перехватываем отправку
@@ -241,46 +445,14 @@
                 isSubmitting = true;
                 console.log("isSubmitting = true, isProcessing = true");
 
-                // Отключаем beforeunload
-                window.onbeforeunload = null;
-                console.log("window.onbeforeunload = null");
-
-                // Позволяем форме отправиться нормально
-                // CSRF токен уже в форме, поэтому проблем быть не должно
-                console.log("Разрешаем отправку формы...");
-
                 // Для безопасности: если обработчик сработал, но форма не отправилась,
                 // через 3 секунды снимаем блокировку
                 setTimeout(() => {
                     isProcessing = false;
+                    isSubmitting = false;
                     console.log("Снята блокировка повторной отправки формы");
                 }, 3000);
             });
-        }
-
-        // Упрощенный beforeunload обработчик
-        window.addEventListener('beforeunload', function(e) {
-            // Если идет отправка формы - не показываем предупреждение
-            if (isSubmitting) {
-                console.log("beforeunload: форма отправляется, предупреждение отключено");
-                return;
-            }
-
-            // Если есть несохраненные изменения
-            if (isDirty) {
-                console.log("beforeunload: есть несохраненные изменения, показываем предупреждение");
-                e.preventDefault();
-                e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите уйти?';
-                return e.returnValue;
-            }
-        });
-
-        // Функция подтверждения выполнения
-        function confirmExecute() {
-            if (isDirty) {
-                return confirm('У вас есть несохраненные изменения. Рекомендуется сохранить перед выполнением. Продолжить?');
-            }
-            return true;
         }
 
         // Горячие клавиши
@@ -295,16 +467,28 @@
             },
             'Ctrl-Enter': function(cm) {
                 console.log("Горячая клавиша Ctrl+Enter");
-                if (confirmExecute()) {
-                    window.open('/api/scripts/' + encodeURIComponent("[[${scriptPath}]]"), '_blank');
+                if (isDirty) {
+                    if (confirm('У вас есть несохраненные изменения. Рекомендуется сохранить перед выполнением. Продолжить?')) {
+                        window.open('/api/scripts/execute?path=' + encodeURIComponent(scriptPath), '_blank');
+                    }
+                } else {
+                    window.open('/api/scripts/execute?path=' + encodeURIComponent(scriptPath), '_blank');
                 }
+            },
+            'Ctrl-B': function(cm) {
+                console.log("Горячая клавиша Ctrl+B (проверка)");
+                validateScript();
+            },
+            'Ctrl-Shift-B': function(cm) {
+                console.log("Горячая клавиша Ctrl+Shift+B (компиляция)");
+                compileScript();
             }
         });
     } else {
         editor.setOption('readOnly', 'nocursor');
     }
 
-    // ========== 4. ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ==========
+    // ========== 5. ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ==========
     window.addEventListener('load', function() {
         setTimeout(function() {
             editor.refresh();

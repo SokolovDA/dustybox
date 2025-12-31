@@ -7,6 +7,9 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 import jakarta.servlet.http.HttpServletRequest
+import java.io.UnsupportedEncodingException
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 @RestController
 @RequestMapping("/api/scripts")
@@ -33,11 +36,17 @@ class ScriptExecutionController {
         return ResponseEntity.ok("All scripts recompiled successfully")
     }
 
-    @GetMapping("/**/compile")
-    ResponseEntity<String> compileScript(HttpServletRequest request) {
+    @GetMapping("/compile")
+    ResponseEntity<String> compileScript(@RequestParam("path") String scriptPath) {
         try {
-            String scriptPath = extractScriptPath(request, "/compile")
-            def clazz = scriptExecutionService.compileScript(scriptPath)
+            // Декодируем путь, если он URL-encoded
+            String decodedPath = decodeUrlPath(scriptPath)
+
+            if (!decodedPath.endsWith('.groovy')) {
+                throw new IllegalArgumentException("Скрипт должен иметь расширение .groovy")
+            }
+
+            def clazz = scriptExecutionService.compileScript(decodedPath)
             return ResponseEntity.ok("Script compiled successfully: ${clazz.name}")
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -45,19 +54,25 @@ class ScriptExecutionController {
         }
     }
 
-    @PostMapping("/**/validate")
+    @PostMapping("/validate")
     ResponseEntity<Map<String, Object>> validateScript(
-            HttpServletRequest request,
+            @RequestParam("path") String scriptPath,
             @RequestBody(required = false) Map<String, String> requestBody
     ) {
         try {
-            String scriptPath = extractScriptPath(request, "/validate")
-            def content = requestBody?.get("content")
-            if (content) {
-                scriptExecutionService.saveScript(scriptPath, content)
+            // Декодируем путь, если он URL-encoded
+            String decodedPath = decodeUrlPath(scriptPath)
+
+            if (!decodedPath.endsWith('.groovy')) {
+                throw new IllegalArgumentException("Скрипт должен иметь расширение .groovy")
             }
 
-            boolean isValid = scriptExecutionService.validateScriptSyntax(scriptPath)
+            def content = requestBody?.get("content")
+            if (content) {
+                scriptExecutionService.saveScript(decodedPath, content)
+            }
+
+            boolean isValid = scriptExecutionService.validateScriptSyntax(decodedPath)
 
             return ResponseEntity.ok([
                     valid: isValid,
@@ -72,25 +87,37 @@ class ScriptExecutionController {
         }
     }
 
-    @GetMapping("/**")
-    Object executeScriptGet(HttpServletRequest request) {
+    @GetMapping("/execute")
+    Object executeScriptGet(@RequestParam("path") String scriptPath) {
         try {
-            String scriptPath = extractScriptPath(request, "")
-            return scriptExecutionService.executeScript(scriptPath, [:])
+            // Декодируем путь, если он URL-encoded
+            String decodedPath = decodeUrlPath(scriptPath)
+
+            if (!decodedPath.endsWith('.groovy')) {
+                throw new IllegalArgumentException("Скрипт должен иметь расширение .groovy")
+            }
+
+            return scriptExecutionService.executeScript(decodedPath, [:])
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Error executing script: ${e.message}")
         }
     }
 
-    @PostMapping("/**")
+    @PostMapping("/execute")
     Object executeScriptPost(
-            HttpServletRequest request,
+            @RequestParam("path") String scriptPath,
             @RequestBody(required = false) Map<String, Object> bindingVars
     ) {
         try {
-            String scriptPath = extractScriptPath(request, "")
-            return scriptExecutionService.executeScript(scriptPath, bindingVars ?: [:])
+            // Декодируем путь, если он URL-encoded
+            String decodedPath = decodeUrlPath(scriptPath)
+
+            if (!decodedPath.endsWith('.groovy')) {
+                throw new IllegalArgumentException("Скрипт должен иметь расширение .groovy")
+            }
+
+            return scriptExecutionService.executeScript(decodedPath, bindingVars ?: [:])
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Error executing script: ${e.message}")
@@ -98,39 +125,13 @@ class ScriptExecutionController {
     }
 
     /**
-     * Извлекает путь к скрипту из URL запроса
-     * @param request HTTP запрос
-     * @param suffixToRemove суффикс для удаления (например, "/compile", "/validate")
-     * @return относительный путь к скрипту
+     * Декодирует URL-encoded строку
      */
-    private String extractScriptPath(HttpServletRequest request, String suffixToRemove) {
-        String requestPath = request.getRequestURI()
-        String contextPath = request.getContextPath()
-        String basePath = contextPath + "/api/scripts"
-
-        // Убираем базовый путь
-        String scriptPath = requestPath.substring(basePath.length())
-
-        // Убираем суффикс, если он есть
-        if (suffixToRemove && scriptPath.endsWith(suffixToRemove)) {
-            scriptPath = scriptPath.substring(0, scriptPath.length() - suffixToRemove.length())
+    private String decodeUrlPath(String path) {
+        try {
+            return URLDecoder.decode(path, StandardCharsets.UTF_8.name())
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalArgumentException("Ошибка декодирования пути: ${path}", e)
         }
-
-        // Убираем начальный слэш, если есть
-        if (scriptPath.startsWith("/")) {
-            scriptPath = scriptPath.substring(1)
-        }
-
-        // Проверяем, что путь не пустой
-        if (!scriptPath || scriptPath.trim().isEmpty()) {
-            throw new IllegalArgumentException("Не указано имя скрипта")
-        }
-
-        // Проверяем расширение файла
-        if (!scriptPath.endsWith('.groovy')) {
-            throw new IllegalArgumentException("Скрипт должен иметь расширение .groovy")
-        }
-
-        return scriptPath
     }
 }

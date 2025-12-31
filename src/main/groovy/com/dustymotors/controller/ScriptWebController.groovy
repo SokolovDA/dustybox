@@ -224,12 +224,21 @@ return [
      */
     @GetMapping("/rename")
     String renamePage(
-            @RequestParam(name = "path") String path,
+            @RequestParam(name = "path", required = false) String path,
+            @RequestParam(name = "oldPath", required = false) String oldPathParam,
             @RequestParam(name = "currentPath", required = false) String currentPath,
             Model model
     ) {
         try {
-            def scriptInfo = scriptService.getScriptInfo(path)
+            // Используем path или oldPath (для обратной совместимости)
+            String actualPath = oldPathParam ?: path
+
+            if (!actualPath) {
+                model.addAttribute('error', 'Не указан путь к файлу/папке')
+                return "redirect:/web/scripts"
+            }
+
+            def scriptInfo = scriptService.getScriptInfo(actualPath)
             if (!scriptInfo) {
                 model.addAttribute('error', 'Файл/папка не найдена')
                 return "redirect:/web/scripts"
@@ -237,6 +246,7 @@ return [
 
             model.addAttribute('scriptInfo', scriptInfo)
             model.addAttribute('currentPath', currentPath)
+            model.addAttribute('oldPath', actualPath)
             return 'scripts/rename'
         } catch (Exception e) {
             model.addAttribute('error', "Ошибка: ${e.message}")
@@ -255,29 +265,47 @@ return [
             RedirectAttributes redirectAttributes
     ) {
         try {
+            // Проверяем, что новое имя отличается от старого
+            def oldFile = new File(oldPath)
+            if (oldFile.name == newName) {
+                redirectAttributes.addFlashAttribute("error", "Новое имя должно отличаться от старого")
+                redirectAttributes.addAttribute("path", oldPath)  // Используем path для обратной совместимости
+                redirectAttributes.addAttribute("oldPath", oldPath)
+                redirectAttributes.addAttribute("currentPath", currentPath)
+                return "redirect:/web/scripts/rename"
+            }
+
             scriptService.renameScript(oldPath, newName)
             redirectAttributes.addFlashAttribute("message", 'Успешно переименовано')
 
-            def oldFile = new File(oldPath)
-            def parent = oldFile.parent
-            def newRelativePath = parent ? "${parent}/${newName}" : newName
+            // Определяем новый путь после переименования
+            def parentDir = oldFile.parent
+            def newRelativePath = parentDir ? "${parentDir}/${newName}" : newName
 
-            if (currentPath && currentPath.startsWith(oldPath)) {
-                def newCurrentPath = currentPath.replaceFirst(oldPath, newRelativePath)
-                redirectAttributes.addAttribute("path", newCurrentPath)
-                return "redirect:/web/scripts"
+            // Если currentPath начинается со старого пути, обновляем его
+            if (currentPath && currentPath.contains(oldPath)) {
+                // Для файлов в текущей директории
+                if (oldPath == currentPath || currentPath.endsWith("/" + oldPath)) {
+                    // Это сам файл, который переименовываем
+                    def newCurrentPath = currentPath.replace(oldPath, newRelativePath)
+                    redirectAttributes.addAttribute("path", newCurrentPath)
+                } else {
+                    // Это директория, содержащая файл
+                    redirectAttributes.addAttribute("path", currentPath)
+                }
+            } else if (currentPath) {
+                redirectAttributes.addAttribute("path", currentPath)
             }
+
+            return "redirect:/web/scripts"
+
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("error", "Ошибка переименования: ${e.message}")
-            redirectAttributes.addAttribute("path", oldPath)
+            redirectAttributes.addAttribute("path", oldPath)  // Используем path для обратной совместимости
+            redirectAttributes.addAttribute("oldPath", oldPath)
             redirectAttributes.addAttribute("currentPath", currentPath)
             return "redirect:/web/scripts/rename"
         }
-
-        if (currentPath) {
-            redirectAttributes.addAttribute("path", currentPath)
-        }
-        return "redirect:/web/scripts"
     }
 
     /**

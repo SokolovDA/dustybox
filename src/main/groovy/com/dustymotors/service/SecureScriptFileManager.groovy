@@ -9,6 +9,8 @@ import jakarta.annotation.PostConstruct
 import java.nio.file.*
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.charset.StandardCharsets
+import java.io.UnsupportedEncodingException
+import java.net.URLDecoder
 
 @Component
 class SecureScriptFileManager {
@@ -41,21 +43,41 @@ class SecureScriptFileManager {
             return basePath
         }
 
+        // Декодируем URL-encoded символы, если есть
+        String decodedPath = decodeUrlPathIfNeeded(relativePath)
+
         // Проверка на опасные паттерны
         forbiddenPatterns.each { pattern ->
-            if (relativePath.contains(pattern)) {
+            if (decodedPath.contains(pattern)) {
                 throw new SecurityException("Обнаружен опасный паттерн в пути: ${pattern}")
             }
         }
 
-        Path resolvedPath = basePath.resolve(relativePath).normalize()
+        Path resolvedPath = basePath.resolve(decodedPath).normalize()
 
         // Проверка path traversal
         if (!resolvedPath.startsWith(basePath)) {
-            throw new SecurityException("Попытка обхода директории: ${relativePath}")
+            throw new SecurityException("Попытка обхода директории: ${decodedPath}")
         }
 
         return resolvedPath
+    }
+
+    /**
+     * Декодирует URL-encoded путь перед разрешением
+     */
+    private String decodeUrlPathIfNeeded(String relativePath) {
+        if (!relativePath) return relativePath
+
+        try {
+            // Проверяем, содержит ли путь URL-encoded символы
+            if (relativePath.contains("%")) {
+                return URLDecoder.decode(relativePath, StandardCharsets.UTF_8.name())
+            }
+            return relativePath
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Ошибка декодирования пути: ${relativePath}", e)
+        }
     }
 
     /**
@@ -101,7 +123,6 @@ class SecureScriptFileManager {
             throw new SecurityException("Нет прав на чтение файла: ${relativePath}")
         }
 
-        // Исправлено: добавлен импорт StandardCharsets
         return Files.readString(filePath, StandardCharsets.UTF_8)
     }
 

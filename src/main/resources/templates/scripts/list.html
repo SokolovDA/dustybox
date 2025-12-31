@@ -13,6 +13,17 @@
         .form-card .form-label { font-size: 0.9rem; margin-bottom: 0.3rem; }
         .form-card .input-group { flex-wrap: nowrap; }
         .file-size { font-family: monospace; }
+        .modal-confirm { color: #636363; }
+        .modal-confirm .modal-content { padding: 20px; border-radius: 5px; border: none; }
+        .modal-confirm .modal-header { border-bottom: none; position: relative; }
+        .modal-confirm h4 { text-align: center; font-size: 26px; margin: 30px 0 -10px; }
+        .modal-confirm .modal-body { color: #999; }
+        .modal-confirm .modal-footer { border: none; text-align: center; border-radius: 5px; font-size: 13px; }
+        .modal-confirm .btn, .modal-confirm .btn:active { color: #fff; border-radius: 4px; background: #60c7c1; text-decoration: none; transition: all 0.4s; line-height: normal; min-width: 120px; border: none; min-height: 40px; border-radius: 3px; margin: 0 5px; }
+        .modal-confirm .btn-secondary { background: #c1c1c1; }
+        .modal-confirm .btn-secondary:hover, .modal-confirm .btn-secondary:focus { background: #a8a8a8; }
+        .modal-confirm .btn-danger { background: #f15e5e; }
+        .modal-confirm .btn-danger:hover, .modal-confirm .btn-danger:focus { background: #ee3535; }
     </style>
 </head>
 <body>
@@ -25,6 +36,36 @@
             <span th:unless="${currentPath}">Все скрипты</span>
         </h1>
         <a href="/swagger-ui.html" class="btn btn-outline-secondary">API Docs</a>
+    </div>
+
+    <!-- Модальное окно подтверждения удаления -->
+    <div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-confirm">
+                <div class="modal-header flex-column">
+                    <div class="icon-box">
+                        <i class="material-icons"></i>
+                    </div>
+                    <h4 class="modal-title w-100">Подтверждение удаления</h4>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="deleteMessage">Вы уверены, что хотите удалить этот элемент?</p>
+                    <div class="alert alert-warning mt-3" id="deleteWarning" style="display: none;">
+                        <strong>Внимание!</strong> При удалении директории будут удалены все файлы и поддиректории внутри нее.
+                    </div>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <form id="deleteForm" method="post" style="display: inline;">
+                        <input type="hidden" name="path" id="deletePath">
+                        <input type="hidden" name="currentPath" id="deleteCurrentPath">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
+                        <button type="submit" class="btn btn-danger">Удалить</button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div th:if="${message}" class="alert alert-success alert-dismissible fade show">
@@ -52,6 +93,7 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
                     <form th:action="@{/web/scripts/create-directory}" method="post" class="row g-2">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
                         <input type="hidden" name="path" th:value="${currentPath}">
                         <div class="col-12">
                             <label class="form-label">Создать папку</label>
@@ -68,6 +110,7 @@
 
                 <div class="col-md-4">
                     <form th:action="@{/web/scripts/create}" method="post" class="row g-2">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
                         <input type="hidden" name="path" th:value="${currentPath}">
                         <div class="col-12">
                             <label class="form-label">Создать скрипт</label>
@@ -85,6 +128,7 @@
                 <div class="col-md-4">
                     <form th:action="@{/web/scripts/upload}" method="post"
                           enctype="multipart/form-data" class="row g-2">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}"/>
                         <input type="hidden" name="path" th:value="${currentPath}">
                         <div class="col-12">
                             <label class="form-label">Загрузить файл</label>
@@ -169,18 +213,18 @@
                             Переименовать
                         </a>
 
-                        <form th:action="@{/web/scripts/delete}" method="post"
-                              style="display: inline-block;"
-                              onsubmit="return confirm('Удалить \'' + [[${script.name}]] + '\'?');">
-                            <input type="hidden" name="path" th:value="${script.relativePath}">
-                            <input type="hidden" name="currentPath" th:value="${currentPath}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger ms-1">
-                                Удалить
-                            </button>
-                        </form>
+                        <!-- Кнопка удаления с вызовом модального окна -->
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-1 delete-btn"
+                                th:data-path="${script.relativePath}"
+                                th:data-current-path="${currentPath}"
+                                th:data-is-directory="${script.isDirectory}"
+                                th:data-name="${script.name}"
+                                onclick="showDeleteConfirm(this)">
+                            Удалить
+                        </button>
 
                         <a th:if="${!script.isDirectory and script.name.endsWith('.groovy')}"
-                           th:href="@{/api/scripts/__${script.relativePath}__}"
+                           th:href="@{/api/scripts/execute(path=${script.relativePath})}"
                            target="_blank"
                            class="btn btn-sm btn-outline-success ms-1"
                            onclick="return confirm('Выполнить скрипт \'' + [[${script.name}]] + '\'?')">
@@ -213,17 +257,35 @@
                 }
             });
         }
-
-        // Исправляем ссылки выполнения для вложенных путей
-        document.querySelectorAll('a.btn-outline-success').forEach(link => {
-            const originalHref = link.getAttribute('href');
-            if (originalHref && originalHref.includes('__')) {
-                // Заменяем __ на / для корректного URL
-                const correctedHref = originalHref.replace(/__/g, '/');
-                link.setAttribute('href', correctedHref);
-            }
-        });
     });
+
+    // Функция для показа модального окна подтверждения удаления
+    function showDeleteConfirm(button) {
+        const path = button.getAttribute('data-path');
+        const currentPath = button.getAttribute('data-current-path');
+        const isDirectory = button.getAttribute('data-is-directory') === 'true';
+        const name = button.getAttribute('data-name');
+
+        // Устанавливаем сообщение в зависимости от типа элемента
+        const deleteMessage = document.getElementById('deleteMessage');
+        const deleteWarning = document.getElementById('deleteWarning');
+
+        if (isDirectory) {
+            deleteMessage.textContent = `Вы уверены, что хотите удалить папку "${name}"?`;
+            deleteWarning.style.display = 'block';
+        } else {
+            deleteMessage.textContent = `Вы уверены, что хотите удалить файл "${name}"?`;
+            deleteWarning.style.display = 'none';
+        }
+
+        // Устанавливаем значения в скрытые поля формы
+        document.getElementById('deletePath').value = path;
+        document.getElementById('deleteCurrentPath').value = currentPath;
+
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('confirmDeleteModal'));
+        modal.show();
+    }
 </script>
 </body>
 </html>

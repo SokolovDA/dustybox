@@ -9,7 +9,12 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Переименование</h1>
-        <a th:href="@{/web/scripts}" class="btn btn-outline-secondary">Назад к списку</a>
+        <a th:if="${currentPath}"
+           th:href="@{/web/scripts(path=${currentPath})}"
+           class="btn btn-outline-secondary">Назад к списку</a>
+        <a th:unless="${currentPath}"
+           th:href="@{/web/scripts}"
+           class="btn btn-outline-secondary">Назад к списку</a>
     </div>
 
     <!-- Сообщения -->
@@ -25,7 +30,8 @@
     <div class="card">
         <div class="card-body">
             <form th:action="@{/web/scripts/rename}" method="post">
-                <input type="hidden" name="oldPath" th:value="${scriptInfo.relativePath}">
+                <!-- Использовать oldPath из модели -->
+                <input type="hidden" name="oldPath" th:value="${oldPath}">
                 <input type="hidden" name="currentPath" th:value="${currentPath}">
 
                 <div class="mb-3">
@@ -86,5 +92,22 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const newNameInput = document.querySelector('input[name="newName"]');
+        const oldName = "[[${scriptInfo.name}]]";
+
+        if (newNameInput) {
+            newNameInput.addEventListener('input', function(e) {
+                if (e.target.value === oldName) {
+                    e.target.setCustomValidity('Новое имя должно отличаться от старого');
+                } else {
+                    e.target.setCustomValidity('');
+                }
+            });
+        }
+    });
+</script>
 </body>
 </html>
