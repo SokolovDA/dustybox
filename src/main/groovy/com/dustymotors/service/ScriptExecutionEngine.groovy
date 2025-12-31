@@ -8,8 +8,9 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import jakarta.annotation.PostConstruct
 
+import java.nio.file.Path
 import java.util.concurrent.*
-import java.util.concurrent.atomic.AtomicInteger
+import java.nio.file.Paths
 
 @Component
 class ScriptExecutionEngine {
@@ -23,28 +24,18 @@ class ScriptExecutionEngine {
     @Value('${dustybox.scripts.cache-enabled:true}')
     private boolean cacheEnabled
 
-    @Value('${dustybox.scripts.max-executions-per-minute:60}')
-    private int maxExecutionsPerMinute
-
     @Autowired(required = false)
     private CdDiskService cdDiskService
 
     private GroovyScriptEngine scriptEngine
     private Map<String, Class<Script>> scriptCache = new ConcurrentHashMap<>()
     private ExecutorService executorService
-    private Map<String, AtomicInteger> executionCounts = new ConcurrentHashMap<>()
 
     @PostConstruct
     void init() {
         def urls = [new File(scriptsBaseDir).toURI().toURL()]
-
-        // Используем стандартный ClassLoader
         scriptEngine = new GroovyScriptEngine(urls as URL[], this.class.classLoader)
         executorService = Executors.newCachedThreadPool()
-
-        // Настройка лимитов выполнения
-        setupRateLimiter()
-
         println "ScriptExecutionEngine инициализирован. Таймаут: ${executionTimeoutSeconds}с"
     }
 
@@ -54,11 +45,12 @@ class ScriptExecutionEngine {
     Object executeScript(String scriptName, Map<String, Object> bindingVars = [:]) {
         validateScriptName(scriptName)
 
-        // Проверка rate limiting
-        checkExecutionLimit(scriptName)
-
         Binding binding = createSecureBinding(bindingVars)
         Class<Script> scriptClass = getScriptClass(scriptName)
+
+        // Добавляем finalFilename для совместимости со старыми скриптами
+        String finalFilename = new File(scriptName).getName()
+        binding.setVariable("finalFilename", finalFilename)
 
         // Выполнение с таймаутом
         Callable<Object> task = { ->
@@ -97,8 +89,6 @@ class ScriptExecutionEngine {
 
         try {
             Class<Script> clazz = scriptEngine.loadScriptByName(scriptName) as Class<Script>
-
-            // Простая валидация
             validateScriptClass(clazz)
 
             if (cacheEnabled) {
@@ -135,7 +125,6 @@ class ScriptExecutionEngine {
      */
     void recompileAll() {
         clearCache()
-
         def baseDir = new File(scriptsBaseDir)
         if (!baseDir.exists()) return
 
@@ -174,16 +163,13 @@ class ScriptExecutionEngine {
     private Binding createSecureBinding(Map<String, Object> bindingVars) {
         Binding binding = new Binding()
 
-        // Добавляем только разрешенные сервисы
         if (cdDiskService) {
             binding.setVariable('cdDiskService', cdDiskService)
         }
 
-        // Добавляем вспомогательные переменные
         binding.setVariable('executionTime', new Date())
         binding.setVariable('scriptName', "script_${System.currentTimeMillis()}")
 
-        // Добавляем безопасные системные функции
         binding.setVariable('println', { Object msg ->
             System.out.println("[Script @ ${new Date()}] ${msg}")
         } as Closure)
@@ -192,10 +178,8 @@ class ScriptExecutionEngine {
             System.out.print("[Script] ${msg}")
         } as Closure)
 
-        // Добавляем безопасные утилиты
         binding.setVariable('safeMath', new SafeMathUtils())
 
-        // Пользовательские переменные
         bindingVars?.each { key, value ->
             binding.setVariable(key, value)
         }
@@ -204,7 +188,7 @@ class ScriptExecutionEngine {
     }
 
     /**
-     * Валидация имени скрипта
+     * Валидация имени скрипта (поддерживает вложенные пути)
      */
     private void validateScriptName(String scriptName) {
         if (!scriptName) {
@@ -219,41 +203,22 @@ class ScriptExecutionEngine {
         if (scriptName.contains('..')) {
             throw new SecurityException("Недопустимое имя скрипта (path traversal)")
         }
+
+        // Дополнительная проверка безопасности пути
+        Path scriptPath = Paths.get(scriptsBaseDir, scriptName).normalize()
+        Path basePath = Paths.get(scriptsBaseDir).toAbsolutePath().normalize()
+
+        if (!scriptPath.toAbsolutePath().normalize().startsWith(basePath)) {
+            throw new SecurityException("Попытка обхода директории: ${scriptName}")
+        }
     }
 
     /**
      * Валидация класса скрипта
      */
     private void validateScriptClass(Class<Script> clazz) {
-        // Базовая проверка - класс должен наследоваться от Script
         if (!Script.isAssignableFrom(clazz)) {
             throw new SecurityException("Некорректный класс скрипта")
-        }
-    }
-
-    /**
-     * Настройка rate limiter
-     */
-    private void setupRateLimiter() {
-        Timer timer = new Timer("ScriptRateLimiter", true)
-        timer.schedule(new TimerTask() {
-            @Override
-            void run() {
-                executionCounts.clear()
-            }
-        }, 60_000, 60_000)
-    }
-
-    /**
-     * Проверка лимита выполнения
-     */
-    private void checkExecutionLimit(String scriptName) {
-        String key = scriptName + "_" + System.currentTimeMillis() / 60000
-
-        AtomicInteger counter = executionCounts.computeIfAbsent(key, { new AtomicInteger(0) })
-
-        if (counter.incrementAndGet() > maxExecutionsPerMinute) {
-            throw new ScriptExecutionException("Превышен лимит выполнения скриптов (${maxExecutionsPerMinute}/мин)", null)
         }
     }
 
@@ -262,24 +227,16 @@ class ScriptExecutionEngine {
      */
     class SafeMathUtils {
         BigDecimal add(BigDecimal a, BigDecimal b) { a + b }
-
         BigDecimal subtract(BigDecimal a, BigDecimal b) { a - b }
-
         BigDecimal multiply(BigDecimal a, BigDecimal b) { a * b }
-
         BigDecimal divide(BigDecimal a, BigDecimal b) {
             if (b == 0) throw new ArithmeticException("Деление на ноль")
             a / b
         }
-
         BigDecimal pow(BigDecimal a, int exponent) { a ** exponent }
-
         BigDecimal max(BigDecimal a, BigDecimal b) { a.max(b) }
-
         BigDecimal min(BigDecimal a, BigDecimal b) { a.min(b) }
-
         BigDecimal abs(BigDecimal a) { a.abs() }
-
         BigDecimal round(BigDecimal a, int scale = 0) { a.setScale(scale, BigDecimal.ROUND_HALF_UP) }
     }
 

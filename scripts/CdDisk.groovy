@@ -1,9 +1,9 @@
 package com.dustymotors.entity
 
 import groovy.transform.Canonical
-import jakarta.persistence.*
+import jakarta.persistence.* 
 
-@Entity
+@Entity 
 @Table(name = "cd_disks")
 @Canonical
 class CdDisk {

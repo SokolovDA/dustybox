@@ -87,54 +87,63 @@ return [
         }
     }
 
-    /**
-     * Страница редактирования скрипта
-     */
+/**
+ * Страница редактирования скрипта
+ */
     @GetMapping("/edit")
     String editScript(
             @RequestParam(name = "path") String path,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
             @RequestParam(name = "message", required = false) String message,
             @RequestParam(name = "error", required = false) String error,
             Model model
     ) {
         try {
-            def content = scriptService.getScriptContent(path)
-            model.addAttribute('scriptPath', path)
-            model.addAttribute('scriptContent', content)
+            // Получаем содержимое скрипта
+            String content = scriptService.getScriptContent(path)
+            model.addAttribute("scriptPath", path)
+            model.addAttribute("scriptContent", content != null ? content : "")
+            model.addAttribute("currentPath", currentPath)
+            // КРИТИЧНО: Явно устанавливаем readOnly = false для режима редактирования
+            model.addAttribute("readOnly", false)
 
             if (message) {
-                model.addAttribute('message', message)
+                model.addAttribute("message", message)
             }
             if (error) {
-                model.addAttribute('error', error)
+                model.addAttribute("error", error)
             }
 
-            return 'scripts/edit'
-        } catch (FileNotFoundException e) {
-            model.addAttribute('error', 'Файл не найден')
-            return 'redirect:/web/scripts'
+            return "scripts/edit"
         } catch (Exception e) {
-            model.addAttribute('error', "Ошибка при загрузке скрипта: ${e.message}")
-            return 'redirect:/web/scripts'
+            model.addAttribute("error", "Ошибка при загрузке скрипта: ${e.message}")
+            // Возвращаемся в текущий каталог при ошибке
+            if (currentPath) {
+                return "redirect:/web/scripts?path=" + URLEncoder.encode(currentPath, "UTF-8")
+            }
+            return "redirect:/web/scripts"
         }
     }
 
     /**
-     * Сохранение скрипта
+     * Сохранение скрипта - тоже нужно обновить для передачи currentPath
      */
     @PostMapping("/save")
     String saveScript(
             @RequestParam(name = "path") String path,
             @RequestParam(name = "content") String content,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
             RedirectAttributes redirectAttributes
     ) {
         try {
             scriptService.saveScript(path, content)
             redirectAttributes.addAttribute("path", path)
+            redirectAttributes.addAttribute("currentPath", currentPath)
             redirectAttributes.addAttribute("message", "Скрипт успешно сохранен")
             return "redirect:/web/scripts/edit"
         } catch (Exception e) {
             redirectAttributes.addAttribute("path", path)
+            redirectAttributes.addAttribute("currentPath", currentPath)
             redirectAttributes.addAttribute("error", "Ошибка сохранения: ${e.message}")
             return "redirect:/web/scripts/edit"
         }
@@ -272,22 +281,25 @@ return [
     }
 
     /**
-     * Предпросмотр скрипта
+     * Предпросмотр скрипта (режим только для чтения)
      */
     @GetMapping("/preview")
     String previewScript(
             @RequestParam(name = "path") String path,
+            @RequestParam(name = "currentPath", required = false) String currentPath,
             Model model
     ) {
         try {
             def content = scriptService.getScriptContent(path)
-            model.addAttribute('scriptPath', path)
-            model.addAttribute('scriptContent', content)
-            model.addAttribute('readOnly', true)
-            return 'scripts/edit'
+            model.addAttribute("scriptPath", path)
+            model.addAttribute("scriptContent", content)
+            model.addAttribute("currentPath", currentPath)
+            // КРИТИЧНО: Устанавливаем readOnly = true для режима предпросмотра
+            model.addAttribute("readOnly", true)
+            return "scripts/edit"
         } catch (Exception e) {
-            model.addAttribute('error', "Ошибка: ${e.message}")
-            return 'redirect:/web/scripts'
+            model.addAttribute("error", "Ошибка: ${e.message}")
+            return "redirect:/web/scripts"
         }
     }
 

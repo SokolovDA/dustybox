@@ -44,11 +44,10 @@ class SecurityConfig {
         http
                 .authorizeHttpRequests { auth ->
                     auth
-                    // Разрешаем доступ к статическим ресурсам и страницам логина без аутентификации
                             .requestMatchers("/", "/index.htm", "/login", "/error", "/css/**", "/js/**", "/images/**").permitAll()
-                    // Разрешаем доступ к Swagger UI
                             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-                    // Все остальные запросы требуют аутентификации
+                            .requestMatchers("/api/scripts/**").authenticated() // Разрешаем все пути API скриптов
+                            .requestMatchers("/web/scripts/**").authenticated()
                             .anyRequest().authenticated()
                 }
                 .sessionManagement { session ->
@@ -73,11 +72,9 @@ class SecurityConfig {
                     httpBasic.realmName("Dustybox API")
                 }
 
-        // Настройка CSRF
         if (!csrfEnabled) {
             http.csrf(AbstractHttpConfigurer::disable)
         } else {
-            // Разрешаем CSRF для API если нужно
             http.csrf { csrf ->
                 csrf.ignoringRequestMatchers("/api/**")
             }
